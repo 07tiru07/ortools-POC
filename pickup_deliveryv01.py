@@ -1,5 +1,4 @@
 """Simple Vehicles Routing Problem."""
-"""Get routes for all the combinations of the start points."""
 
 from __future__ import print_function
 from ortools.constraint_solver import routing_enums_pb2
