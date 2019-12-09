@@ -8,7 +8,7 @@ from time import sleep
 import math
 from itertools import combinations
 
-CAB_CAPACITY = 3
+CAB_CAPACITY = 4
 
 
 def create_data_model():
@@ -20,98 +20,205 @@ def create_data_model():
     # data['ends'] = [0, 0]
     return data
 
-
+list_of_nodes_visited_during_best_path = []
 def print_solution(data, manager, routing, solution):
     """Prints solution on console."""
-    max_route_distance = 0
+    min_route_distance = 999999999
     for vehicle_id in range(data['num_vehicles']):
         index = routing.Start(vehicle_id)
         plan_output = 'Route for vehicle {}:\n'.format(vehicle_id)
         route_distance = 0
+        temp_list_of_nodes_visited = []
         while not routing.IsEnd(index):
             plan_output += ' {} -> '.format(manager.IndexToNode(index))
+            temp_list_of_nodes_visited.append(manager.IndexToNode(index))
             previous_index = index
             index = solution.Value(routing.NextVar(index))
             route_distance += routing.GetArcCostForVehicle(
                 previous_index, index, vehicle_id)
+        if route_distance < min_route_distance:
+            list_of_nodes_visited_during_best_path.clear()
+            list_of_nodes_visited_during_best_path.append(temp_list_of_nodes_visited)
         plan_output += '{}\n'.format(manager.IndexToNode(index))
         plan_output += 'Distance of the route: {}m\n'.format(route_distance)
-        print(plan_output)
-        max_route_distance = max(route_distance, max_route_distance)
-    print('Maximum of the route distances: {}m'.format(max_route_distance))
+        #print(plan_output)
+        min_route_distance = min(route_distance, min_route_distance)
+    print('Minimum of the route distances: {}m'.format(min_route_distance))
+    print(list_of_nodes_visited_during_best_path)
+
+def delete_the_visited_nodes_from_the_distance_matrix():
+    pass
+
+
+def get_the_farthest_point(distance_matrix):
+    print(distance_matrix[0].index(max(distance_matrix[0])))
+    print(max(distance_matrix[0]))
+    return distance_matrix[0].index(max(distance_matrix[0]))
+
+def constraint_solver(data,no_of_cabs,no_of_employees):
+    farthest_point_from_depot = get_the_farthest_point(data['distance_matrix'])
+    data['starts'] = [farthest_point_from_depot]*no_of_cabs
+    data['ends'] = [0]*no_of_cabs
+    data['num_vehicles'] = no_of_cabs
+    data['demands'] = [1]*no_of_employees
+    data['demands'].insert(0,0)
+    data['vehicle_capacities'] = [CAB_CAPACITY] * no_of_cabs 
+    print("data-----------------------")
+    print(data['num_vehicles'])
+
+
+    # Create the routing index manager.
+    manager = pywrapcp.RoutingIndexManager(len(data['distance_matrix']),
+                                        data['num_vehicles'], data['starts'],
+                                        data['ends'])
+
+    # Create Routing Model.
+    routing = pywrapcp.RoutingModel(manager)
+    #print(routing)
+
+
+    # Create and register a transit callback.
+    def distance_callback(from_index, to_index):
+        """Returns the distance between the two nodes."""
+        # Convert from routing variable Index to distance matrix NodeIndex.
+        from_node = manager.IndexToNode(from_index)
+        to_node = manager.IndexToNode(to_index)
+        return data['distance_matrix'][from_node][to_node]
+
+    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+
+    # Define cost of each arc.
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    # # Add Distance constraint.
+    # dimension_name = 'Distance'
+    # routing.AddDimension(
+    #     transit_callback_index,
+    #     0,  # no slack
+    #     50000,  # vehicle maximum travel distance
+    #     True,  # start cumul to zero
+    #     dimension_name)
+    # distance_dimension = routing.GetDimensionOrDie(dimension_name)
+    # distance_dimension.SetGlobalSpanCostCoefficient(100)
+
+
+    def demand_callback(from_index):
+        """Returns the demand of the node."""
+        # Convert from routing variable Index to demands NodeIndex.
+        from_node = manager.IndexToNode(from_index)
+        return data['demands'][from_node]
+
+    demand_callback_index = routing.RegisterUnaryTransitCallback(
+        demand_callback)
+    routing.AddDimensionWithVehicleCapacity(
+        demand_callback_index,
+        0,  # null capacity slack
+        data['vehicle_capacities'],  # vehicle maximum capacities
+        True,  # start cumul to zero
+        'Capacity')
+
+
+    # Setting first solution heuristic.
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.time_limit.seconds = 5
+    search_parameters.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+
+    return search_parameters, manager, routing
 
 
 def main():
     """Entry point of the program."""
     # Instantiate the data problem.
     data = create_data_model()
-    print(data)
-
-    # Running for loop to check for each possible way to find the route 
-    print("No of dropoff/pickup points", len(data['distance_matrix']))
     no_of_employees = len(data['distance_matrix']) - 1
+
     no_of_cabs = math.ceil(no_of_employees / CAB_CAPACITY)
-    print("no of employees", no_of_employees)
-    print("no of cabs", no_of_cabs)
-    ends = [0]*no_of_cabs
-    starts = list(range(1,no_of_employees))
-    print("starts",starts)
-    print("ends",ends)
 
-    list_of_start_combinations = list(combinations(starts,no_of_cabs))
-    print("combinations",list_of_start_combinations)
+    search_parameters, manager, routing = constraint_solver(data,no_of_cabs,no_of_employees)
 
-    data['ends'] = ends
-    data['num_vehicles'] = no_of_cabs
-
-    for start in list_of_start_combinations:
-        data['starts'] = start
-        print("start", start)
-        # Create the routing index manager.
-        manager = pywrapcp.RoutingIndexManager(len(data['distance_matrix']),
-                                            data['num_vehicles'], data['starts'],
-                                            data['ends'])
-
-        # Create Routing Model.
-        routing = pywrapcp.RoutingModel(manager)
-        print(routing)
+    # farthest_point_from_depot = get_the_farthest_point(data['distance_matrix'])
+    # data['starts'] = [farthest_point_from_depot]*no_of_cabs
+    # data['ends'] = [0]*no_of_cabs
+    # data['num_vehicles'] = no_of_cabs
+    # data['demands'] = [1]*no_of_employees
+    # data['demands'].insert(0,0)
+    # data['vehicle_capacities'] = [CAB_CAPACITY] * no_of_cabs 
+    # print("data-----------------------")
+    # print(data)
 
 
-        # Create and register a transit callback.
-        def distance_callback(from_index, to_index):
-            """Returns the distance between the two nodes."""
-            # Convert from routing variable Index to distance matrix NodeIndex.
-            from_node = manager.IndexToNode(from_index)
-            to_node = manager.IndexToNode(to_index)
-            return data['distance_matrix'][from_node][to_node]
+    # # Create the routing index manager.
+    # manager = pywrapcp.RoutingIndexManager(len(data['distance_matrix']),
+    #                                     data['num_vehicles'], data['starts'],
+    #                                     data['ends'])
 
-        transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+    # # Create Routing Model.
+    # routing = pywrapcp.RoutingModel(manager)
+    # #print(routing)
 
-        # Define cost of each arc.
-        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-        # Add Distance constraint.
-        dimension_name = 'Distance'
-        routing.AddDimension(
-            transit_callback_index,
-            0,  # no slack
-            50000,  # vehicle maximum travel distance
-            True,  # start cumul to zero
-            dimension_name)
-        distance_dimension = routing.GetDimensionOrDie(dimension_name)
-        distance_dimension.SetGlobalSpanCostCoefficient(100)
+    # # Create and register a transit callback.
+    # def distance_callback(from_index, to_index):
+    #     """Returns the distance between the two nodes."""
+    #     # Convert from routing variable Index to distance matrix NodeIndex.
+    #     from_node = manager.IndexToNode(from_index)
+    #     to_node = manager.IndexToNode(to_index)
+    #     return data['distance_matrix'][from_node][to_node]
 
-        # Setting first solution heuristic.
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.first_solution_strategy = (
-            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+    # transit_callback_index = routing.RegisterTransitCallback(distance_callback)
 
-        # Solve the problem.
+    # # Define cost of each arc.
+    # routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    # # # Add Distance constraint.
+    # # dimension_name = 'Distance'
+    # # routing.AddDimension(
+    # #     transit_callback_index,
+    # #     0,  # no slack
+    # #     10000000,  # vehicle maximum travel distance
+    # #     True,  # start cumul to zero
+    # #     dimension_name)
+    # # distance_dimension = routing.GetDimensionOrDie(dimension_name)
+    # # distance_dimension.SetGlobalSpanCostCoefficient(100)
+
+
+    # def demand_callback(from_index):
+    #     """Returns the demand of the node."""
+    #     # Convert from routing variable Index to demands NodeIndex.
+    #     from_node = manager.IndexToNode(from_index)
+    #     return data['demands'][from_node]
+
+    # demand_callback_index = routing.RegisterUnaryTransitCallback(
+    #     demand_callback)
+    # routing.AddDimensionWithVehicleCapacity(
+    #     demand_callback_index,
+    #     0,  # null capacity slack
+    #     data['vehicle_capacities'],  # vehicle maximum capacities
+    #     True,  # start cumul to zero
+    #     'Capacity')
+
+
+    # # Setting first solution heuristic.
+    # search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    # search_parameters.time_limit.seconds = 10
+    # search_parameters.first_solution_strategy = (
+    #     routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+
+    # Solve the problem.
+    solution = routing.SolveWithParameters(search_parameters)
+    print("solution", solution)
+    new_cab_capacity = no_of_cabs + 1
+    while not solution:
+        print("from while loop", solution)
+        search_parameters, manager, routing = constraint_solver(data,new_cab_capacity,no_of_employees)
         solution = routing.SolveWithParameters(search_parameters)
+        new_cab_capacity+=1
 
-        # Print solution on console.
-        if solution:
-            print_solution(data, manager, routing, solution)
+
+    # Print solution on console.
+    if solution:
+        print_solution(data, manager, routing, solution)
 
 
 if __name__ == '__main__':
